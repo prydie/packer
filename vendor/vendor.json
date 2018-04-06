@@ -1,6 +1,6 @@
 {
 	"comment": "",
-	"ignore": "test appengine",
+	"ignore": "test",
 	"package": [
 		{
 			"checksumSHA1": "aABATU51PlDHfGeSe5cc9udwSXg=",
@@ -1092,6 +1092,13 @@
 			"revisionTime": "2018-01-05T11:11:33Z"
 		},
 		{
+			"checksumSHA1": "/LfGOK58LAN5bN/kVhyjw6prFuw=",
+			"path": "github.com/oracle/oci-go-sdk",
+			"revision": "36126af3da60f6d2053487efed8801aa794f7605",
+			"revisionTime": "2018-03-02T19:49:46Z",
+			"tree": true
+		},
+		{
 			"checksumSHA1": "/NoE6t3UkW4/iKAtbf59GGv6tF8=",
 			"path": "github.com/packer-community/winrmcp/winrmcp",
 			"revision": "81144009af586de8e7729b829266f09dd0d59701",
@@ -1207,6 +1214,12 @@
 			"path": "github.com/stretchr/testify/assert",
 			"revision": "d77da356e56a7428ad25149ca77381849a6a5232",
 			"revisionTime": "2016-06-15T09:26:46Z"
+		},
+		{
+			"checksumSHA1": "TroUrCnO7mVi4ZB+I5t4gXJZdE0=",
+			"path": "github.com/subosito/gotenv",
+			"revision": "009e1f9581dc712aba5682a279dee155ca3eeded",
+			"revisionTime": "2017-01-20T14:09:13Z"
 		},
 		{
 			"checksumSHA1": "GQ9bu6PuydK3Yor1JgtVKUfEJm8=",

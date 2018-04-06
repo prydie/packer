@@ -3,12 +3,12 @@ package oci
 import (
 	"fmt"
 
-	client "github.com/hashicorp/packer/builder/oracle/oci/client"
+	"github.com/oracle/oci-go-sdk/core"
 )
 
 // Artifact is an artifact implementation that contains a built Custom Image.
 type Artifact struct {
-	Image  client.Image
+	Image  core.Image
 	Region string
 	driver Driver
 }
@@ -26,13 +26,13 @@ func (a *Artifact) Files() []string {
 
 // Id returns the OCID of the associated Image.
 func (a *Artifact) Id() string {
-	return a.Image.ID
+	return *a.Image.Id
 }
 
 func (a *Artifact) String() string {
 	return fmt.Sprintf(
 		"An image was created: '%v' (OCID: %v) in region '%v'",
-		a.Image.DisplayName, a.Image.ID, a.Region,
+		a.Image.DisplayName, a.Image.Id, a.Region,
 	)
 }
 
@@ -42,5 +42,5 @@ func (a *Artifact) State(name string) interface{} {
 
 // Destroy deletes the custom image associated with the artifact.
 func (a *Artifact) Destroy() error {
-	return a.driver.DeleteImage(a.Image.ID)
+	return a.driver.DeleteImage(*a.Image.Id)
 }

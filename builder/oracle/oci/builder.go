@@ -7,11 +7,11 @@ import (
 	"log"
 
 	ocommon "github.com/hashicorp/packer/builder/oracle/common"
-	client "github.com/hashicorp/packer/builder/oracle/oci/client"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/communicator"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
+	"github.com/oracle/oci-go-sdk/core"
 )
 
 // BuilderId uniquely identifies the builder
@@ -37,6 +37,7 @@ func (b *Builder) Prepare(rawConfig ...interface{}) ([]string, error) {
 }
 
 func (b *Builder) Run(ui packer.Ui, hook packer.Hook, cache packer.Cache) (packer.Artifact, error) {
+
 	driver, err := NewDriverOCI(b.config)
 	if err != nil {
 		return nil, err
@@ -78,10 +79,16 @@ func (b *Builder) Run(ui packer.Ui, hook packer.Hook, cache packer.Cache) (packe
 		return nil, rawErr.(error)
 	}
 
+	region, err := b.config.AccessCfg.Region()
+
+	if err != nil {
+		return nil, err
+	}
+
 	// Build the artifact and return it
 	artifact := &Artifact{
-		Image:  state.Get("image").(client.Image),
-		Region: b.config.AccessCfg.Region,
+		Image:  state.Get("image").(core.Image),
+		Region: region,
 		driver: driver,
 	}
 

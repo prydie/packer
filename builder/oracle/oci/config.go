@@ -3,15 +3,16 @@ package oci
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
-	client "github.com/hashicorp/packer/builder/oracle/oci/client"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/communicator"
 	"github.com/hashicorp/packer/helper/config"
 	"github.com/hashicorp/packer/packer"
 	"github.com/hashicorp/packer/template/interpolate"
+	conf "github.com/oracle/oci-go-sdk/common"
 
 	"github.com/mitchellh/go-homedir"
 )
@@ -20,7 +21,7 @@ type Config struct {
 	common.PackerConfig `mapstructure:",squash"`
 	Comm                communicator.Config `mapstructure:",squash"`
 
-	AccessCfg *client.Config
+	AccessCfg conf.ConfigurationProvider
 
 	AccessCfgFile        string `mapstructure:"access_cfg_file"`
 	AccessCfgFileAccount string `mapstructure:"access_cfg_file_account"`
@@ -61,128 +62,51 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	}
 
 	// Determine where the SDK config is located
-	var accessCfgFile string
-	if c.AccessCfgFile != "" {
-		accessCfgFile = c.AccessCfgFile
-	} else {
-		accessCfgFile, err = getDefaultOCISettingsPath()
+	if c.AccessCfgFile == "" {
+		c.AccessCfgFile, err = getDefaultOCISettingsPath()
 		if err != nil {
-			accessCfgFile = "" // Access cfg might be in template
+			//TODO (HarveyLowndes) log error
 		}
 	}
 
-	accessCfg := &client.Config{}
-
-	if accessCfgFile != "" {
-		loadedAccessCfgs, err := client.LoadConfigsFromFile(accessCfgFile)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid config file %s: %s", accessCfgFile, err)
-		}
-		cfgAccount := "DEFAULT"
-		if c.AccessCfgFileAccount != "" {
-			cfgAccount = c.AccessCfgFileAccount
-		}
-
-		var ok bool
-		accessCfg, ok = loadedAccessCfgs[cfgAccount]
-		if !ok {
-			return nil, fmt.Errorf("No account section '%s' found in config file %s", cfgAccount, accessCfgFile)
-		}
+	if c.AccessCfgFileAccount == "" {
+		c.AccessCfgFileAccount = "DEFAULT"
 	}
 
-	// Override SDK client config with any non-empty template properties
-
-	if c.UserID != "" {
-		accessCfg.User = c.UserID
-	}
-
-	if c.TenancyID != "" {
-		accessCfg.Tenancy = c.TenancyID
-	}
-
-	if c.Region != "" {
-		accessCfg.Region = c.Region
-	}
-
-	// Default if the template nor the API config contains a region.
-	if accessCfg.Region == "" {
-		accessCfg.Region = "us-phoenix-1"
-	}
-
-	if c.Fingerprint != "" {
-		accessCfg.Fingerprint = c.Fingerprint
-	}
-
-	if c.PassPhrase != "" {
-		accessCfg.PassPhrase = c.PassPhrase
-	}
-
+	var keyContent []byte
 	if c.KeyFile != "" {
-		accessCfg.KeyFile = c.KeyFile
-		accessCfg.Key, err = client.LoadPrivateKey(accessCfg)
+		// Load private key from disk
+		// Expand '~' to $HOME
+		path, err := homedir.Expand(c.KeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to load private key %s : %s", accessCfg.KeyFile, err)
+			return nil, err
 		}
+
+		// Read API signing key
+		keyContent, err = ioutil.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	providers := []conf.ConfigurationProvider{
+		conf.NewRawConfigurationProvider(c.TenancyID, c.UserID, c.Region, c.Fingerprint, string(keyContent), &c.PassPhrase),
+	}
+
+	fileProvider, err := conf.ConfigurationProviderFromFileWithProfile(c.AccessCfgFile, c.AccessCfgFileAccount, c.PassPhrase)
+	if err == nil {
+		providers = append(providers, fileProvider)
+	}
+
+	// Load API access configuration from SDK
+	accessCfg, err := conf.ComposingConfigurationProvider(providers)
+	if err != nil {
+		return nil, err
 	}
 
 	var errs *packer.MultiError
 	if es := c.Comm.Prepare(&c.ctx); len(es) > 0 {
 		errs = packer.MultiErrorAppend(errs, es...)
-	}
-
-	// Required AccessCfg configuration options
-
-	if accessCfg.User == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'user_ocid' must be specified"))
-	}
-
-	if accessCfg.Tenancy == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'tenancy_ocid' must be specified"))
-	}
-
-	if accessCfg.Region == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'region' must be specified"))
-	}
-
-	if accessCfg.Fingerprint == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'fingerprint' must be specified"))
-	}
-
-	if accessCfg.Key == nil {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'key_file' must be specified"))
-	}
-
-	c.AccessCfg = accessCfg
-
-	// Required non AccessCfg configuration options
-
-	if c.AvailabilityDomain == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'availability_domain' must be specified"))
-	}
-
-	if c.CompartmentID == "" {
-		c.CompartmentID = accessCfg.Tenancy
-	}
-
-	if c.Shape == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'shape' must be specified"))
-	}
-
-	if c.SubnetID == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'subnet_ocid' must be specified"))
-	}
-
-	if c.BaseImageID == "" {
-		errs = packer.MultiErrorAppend(
-			errs, errors.New("'base_image_ocid' must be specified"))
 	}
 
 	if c.ImageName == "" {
@@ -194,6 +118,39 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 			c.ImageName = name
 		}
 	}
+
+	userOCID, _ := accessCfg.UserOCID()
+	if userOCID == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'user_ocid' must be specified"))
+	}
+
+	tenancyOCID, _ := accessCfg.TenancyOCID()
+	if tenancyOCID == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'tenancy_ocid' must be specified"))
+	}
+
+	region, _ := accessCfg.Region()
+	if region == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'region' must be specified"))
+	}
+
+	fingerprint, _ := accessCfg.KeyFingerprint()
+	if fingerprint == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'fingerprint' must be specified"))
+	}
+
+	//TODO (HarveyLowndes) when does this condition occur?
+	privateKey := accessCfg.PrivateRSAKey
+	if privateKey == nil {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'PrivateRSAKey' must be specified"))
+	}
+
+	c.AccessCfg = accessCfg
 
 	if errs != nil && len(errs.Errors) > 0 {
 		return nil, errs
