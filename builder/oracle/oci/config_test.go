@@ -42,7 +42,7 @@ func getField(c *ocicommon.ConfigurationProvider, field string) string {
 func TestConfig(t *testing.T) {
 	// Shared set-up and defered deletion
 
-	/* cfg, keyFile, err := baseTestConfigWithTmpKeyFile()
+	cfg, keyFile, err := baseTestConfigWithTmpKeyFile()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,9 +52,7 @@ func TestConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(cfgFile.Name()) */
-
-	cfgFile, _ := os.Open("/var/folders/p_/fhldl6qj1d9_sm97bk6l_ffc0000gn/T/config_file459541678")
+	defer os.Remove(cfgFile.Name())
 
 	// Temporarily set $HOME to temp directory to bypass default
 	// access config loading.
