@@ -12,32 +12,30 @@ import (
 // driverOCI implements the Driver interface and communicates with Oracle
 // OCI.
 type driverOCI struct {
-	client    core.ComputeClient
-	vcnclient core.VirtualNetworkClient
-	cfg       *Config
+	computeClient core.ComputeClient
+	vcnClient     core.VirtualNetworkClient
+	cfg           *Config
 }
 
 // NewDriverOCI Creates a new driverOCI with a connected compute client and a connected vcn client.
 func NewDriverOCI(cfg *Config) (Driver, error) {
-	client, err := core.NewComputeClientWithConfigurationProvider(cfg.AccessCfg)
+	client, err := core.NewComputeClientWithConfigurationProvider(cfg.ConfigProvider)
 	if err != nil {
 		return nil, err
 	}
 
-	vcnclient, err := core.NewVirtualNetworkClientWithConfigurationProvider(cfg.AccessCfg)
+	vcnclient, err := core.NewVirtualNetworkClientWithConfigurationProvider(cfg.ConfigProvider)
 	if err != nil {
 		return nil, err
 	}
 
-	return &driverOCI{client: client, vcnclient: vcnclient, cfg: cfg}, nil
+	return &driverOCI{computeClient: client, vcnClient: vcnclient, cfg: cfg}, nil
 }
 
 // CreateInstance creates a new compute instance.
 func (d *driverOCI) CreateInstance(publicKey string) (string, error) {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
 
-	instance, err := d.client.LaunchInstance(ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
+	instance, err := d.computeClient.LaunchInstance(context.TODO(), core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
 		AvailabilityDomain: &d.cfg.AvailabilityDomain,
 		CompartmentId:      &d.cfg.CompartmentID,
 		ImageId:            &d.cfg.BaseImageID,
@@ -57,10 +55,7 @@ func (d *driverOCI) CreateInstance(publicKey string) (string, error) {
 
 // CreateImage creates a new custom image.
 func (d *driverOCI) CreateImage(id string) (core.Image, error) {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
-
-	res, err := d.client.CreateImage(ctx, core.CreateImageRequest{CreateImageDetails: core.CreateImageDetails{
+	res, err := d.computeClient.CreateImage(context.TODO(), core.CreateImageRequest{CreateImageDetails: core.CreateImageDetails{
 		CompartmentId: &d.cfg.CompartmentID,
 		InstanceId:    &id,
 		DisplayName:   &d.cfg.ImageName,
@@ -75,20 +70,14 @@ func (d *driverOCI) CreateImage(id string) (core.Image, error) {
 
 // DeleteImage deletes a custom image.
 func (d *driverOCI) DeleteImage(id string) error {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
-
-	_, err := d.client.DeleteImage(ctx, core.DeleteImageRequest{ImageId: &id})
+	_, err := d.computeClient.DeleteImage(context.TODO(), core.DeleteImageRequest{ImageId: &id})
 
 	return err
 }
 
 // GetInstanceIP returns the public or private IP corresponding to the given instance id.
 func (d *driverOCI) GetInstanceIP(id string) (string, error) {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
-
-	vnics, err := d.client.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
+	vnics, err := d.computeClient.ListVnicAttachments(context.TODO(), core.ListVnicAttachmentsRequest{
 		InstanceId:    &id,
 		CompartmentId: &d.cfg.CompartmentID,
 	})
@@ -101,7 +90,7 @@ func (d *driverOCI) GetInstanceIP(id string) (string, error) {
 		return "", errors.New("instance has zero VNICs")
 	}
 
-	vnic, err := d.vcnclient.GetVnic(ctx, core.GetVnicRequest{VnicId: vnics.Items[0].VnicId})
+	vnic, err := d.vcnClient.GetVnic(context.TODO(), core.GetVnicRequest{VnicId: vnics.Items[0].VnicId})
 
 	if err != nil {
 		return "", fmt.Errorf("Error getting VNIC details: %s", err)
@@ -116,10 +105,8 @@ func (d *driverOCI) GetInstanceIP(id string) (string, error) {
 
 // TerminateInstance terminates a compute instance.
 func (d *driverOCI) TerminateInstance(id string) error {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
 
-	_, err := d.client.TerminateInstance(ctx, core.TerminateInstanceRequest{
+	_, err := d.computeClient.TerminateInstance(context.TODO(), core.TerminateInstanceRequest{
 		InstanceId: &id,
 	})
 
@@ -129,34 +116,28 @@ func (d *driverOCI) TerminateInstance(id string) error {
 // WaitForImageCreation waits for a provisioning custom image to reach the
 // "AVAILABLE" state.
 func (d *driverOCI) WaitForImageCreation(id string) error {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
-
 	return waitForResourceToReachState(
 		func(string) (string, error) {
-			image, err := d.client.GetImage(ctx, core.GetImageRequest{ImageId: &id})
+			image, err := d.computeClient.GetImage(context.TODO(), core.GetImageRequest{ImageId: &id})
 			if err != nil {
 				return "", err
 			}
-			return string(image.LifecycleState), nil //TODO(HarveyLowndes) should these be wrapped?
+			return string(image.LifecycleState), nil
 		},
 		id,
 		[]string{"PROVISIONING"},
 		"AVAILABLE",
-		20,    //Temporary
-		10000, //Temporary
+		0,    //Unlimited Retries
+		5000, //5 second wait between retries
 	)
 }
 
 // WaitForInstanceState waits for an instance to reach the a given terminal
 // state.
 func (d *driverOCI) WaitForInstanceState(id string, waitStates []string, terminalState string) error {
-	// This should be passed through the parameters however unsure where if to put this in.
-	ctx := context.TODO()
-
 	return waitForResourceToReachState(
 		func(string) (string, error) {
-			instance, err := d.client.GetInstance(ctx, core.GetInstanceRequest{InstanceId: &id})
+			instance, err := d.computeClient.GetInstance(context.TODO(), core.GetInstanceRequest{InstanceId: &id})
 			if err != nil {
 				return "", err
 			}
@@ -165,8 +146,8 @@ func (d *driverOCI) WaitForInstanceState(id string, waitStates []string, termina
 		id,
 		waitStates,
 		terminalState,
-		20,    //Temporary
-		10000, //Temporary
+		0,    //Unlimited Retries
+		5000, //5 second wait between retries
 	)
 }
 

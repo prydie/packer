@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/hashicorp/packer/helper/config"
 	"github.com/hashicorp/packer/packer"
 	"github.com/hashicorp/packer/template/interpolate"
-	conf "github.com/oracle/oci-go-sdk/common"
+	ocicommon "github.com/oracle/oci-go-sdk/common"
 
 	"github.com/mitchellh/go-homedir"
 )
@@ -21,14 +22,14 @@ type Config struct {
 	common.PackerConfig `mapstructure:",squash"`
 	Comm                communicator.Config `mapstructure:",squash"`
 
-	AccessCfg conf.ConfigurationProvider
+	ConfigProvider ocicommon.ConfigurationProvider
 
 	AccessCfgFile        string `mapstructure:"access_cfg_file"`
 	AccessCfgFileAccount string `mapstructure:"access_cfg_file_account"`
 
 	// Access config overrides
-	UserID       string `mapstructure:"user_ocid"`
-	TenancyID    string `mapstructure:"tenancy_ocid"`
+	UserID       string `mapstructure:"user"`
+	TenancyID    string `mapstructure:"tenancy"`
 	Region       string `mapstructure:"region"`
 	Fingerprint  string `mapstructure:"fingerprint"`
 	KeyFile      string `mapstructure:"key_file"`
@@ -65,7 +66,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	if c.AccessCfgFile == "" {
 		c.AccessCfgFile, err = getDefaultOCISettingsPath()
 		if err != nil {
-			//TODO (HarveyLowndes) log error
+			log.Printf("Fail to get default oci settings: %+v", err)
 		}
 	}
 
@@ -89,20 +90,31 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 		}
 	}
 
-	providers := []conf.ConfigurationProvider{
-		conf.NewRawConfigurationProvider(c.TenancyID, c.UserID, c.Region, c.Fingerprint, string(keyContent), &c.PassPhrase),
+	fileProvider, err := ocicommon.ConfigurationProviderFromFileWithProfile(c.AccessCfgFile, c.AccessCfgFileAccount, c.PassPhrase)
+	if c.Region == "" {
+		var region string
+		if err == nil {
+			region, _ = fileProvider.Region()
+		}
+		if region == "" {
+			c.Region = "us-phoenix-1"
+		}
 	}
 
-	fileProvider, err := conf.ConfigurationProviderFromFileWithProfile(c.AccessCfgFile, c.AccessCfgFileAccount, c.PassPhrase)
+	providers := []ocicommon.ConfigurationProvider{
+		ocicommon.NewRawConfigurationProvider(c.TenancyID, c.UserID, c.Region, c.Fingerprint, string(keyContent), &c.PassPhrase),
+	}
 	if err == nil {
 		providers = append(providers, fileProvider)
 	}
 
 	// Load API access configuration from SDK
-	accessCfg, err := conf.ComposingConfigurationProvider(providers)
+	configProvider, err := ocicommon.ComposingConfigurationProvider(providers)
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf("Config Provider: %+v", configProvider)
 
 	var errs *packer.MultiError
 	if es := c.Comm.Prepare(&c.ctx); len(es) > 0 {
@@ -119,38 +131,65 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 		}
 	}
 
-	userOCID, _ := accessCfg.UserOCID()
+	userOCID, _ := configProvider.UserOCID()
 	if userOCID == "" {
 		errs = packer.MultiErrorAppend(
 			errs, errors.New("'user_ocid' must be specified"))
 	}
 
-	tenancyOCID, _ := accessCfg.TenancyOCID()
+	tenancyOCID, _ := configProvider.TenancyOCID()
 	if tenancyOCID == "" {
 		errs = packer.MultiErrorAppend(
 			errs, errors.New("'tenancy_ocid' must be specified"))
 	}
 
-	region, _ := accessCfg.Region()
+	region, _ := configProvider.Region()
 	if region == "" {
 		errs = packer.MultiErrorAppend(
 			errs, errors.New("'region' must be specified"))
 	}
 
-	fingerprint, _ := accessCfg.KeyFingerprint()
+	fingerprint, _ := configProvider.KeyFingerprint()
 	if fingerprint == "" {
 		errs = packer.MultiErrorAppend(
 			errs, errors.New("'fingerprint' must be specified"))
 	}
 
-	//TODO (HarveyLowndes) when does this condition occur?
-	privateKey := accessCfg.PrivateRSAKey
-	if privateKey == nil {
+	if _, err := configProvider.PrivateRSAKey(); err != nil {
+		log.Printf("RSA Error: %+v", err)
 		errs = packer.MultiErrorAppend(
-			errs, errors.New("'PrivateRSAKey' must be specified"))
+			errs, errors.New("'PrivateRSAKey' must be specified")) //TODO (HarveyLowndes) is this message ok?
 	}
 
-	c.AccessCfg = accessCfg
+	c.ConfigProvider = configProvider
+
+	if c.AvailabilityDomain == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'availability_domain' must be specified"))
+	}
+
+	if c.CompartmentID == "" {
+		tenancy, err := configProvider.TenancyOCID()
+		if err != nil {
+			return nil, err //TODO (HarveyLowndes) is this ok?
+		}
+		c.CompartmentID = tenancy
+	}
+
+	if c.Shape == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'shape' must be specified"))
+	}
+
+	if c.SubnetID == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'subnet_ocid' must be specified"))
+	}
+
+	if c.BaseImageID == "" {
+		errs = packer.MultiErrorAppend(
+			errs, errors.New("'base_image_ocid' must be specified"))
+	}
 
 	if errs != nil && len(errs.Errors) > 0 {
 		return nil, errs
@@ -163,6 +202,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 // config file location ($HOME/.oci/config).
 func getDefaultOCISettingsPath() (string, error) {
 	home, err := homedir.Dir()
+
 	if err != nil {
 		return "", err
 	}

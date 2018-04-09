@@ -79,7 +79,7 @@ func (b *Builder) Run(ui packer.Ui, hook packer.Hook, cache packer.Cache) (packe
 		return nil, rawErr.(error)
 	}
 
-	region, err := b.config.AccessCfg.Region()
+	region, err := b.config.ConfigProvider.Region()
 
 	if err != nil {
 		return nil, err
