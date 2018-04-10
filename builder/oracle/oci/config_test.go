@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/go-ini/ini"
@@ -75,10 +76,9 @@ func TestConfig(t *testing.T) {
 		if errs != nil {
 			t.Fatalf("err: %+v", errs)
 		}
-
 	})
 
-	/* 	t.Run("NoAccessConfig", func(t *testing.T) {
+	t.Run("NoAccessConfig", func(t *testing.T) {
 		raw := testConfig(cfgFile)
 		delete(raw, "access_cfg_file")
 
@@ -92,12 +92,12 @@ func TestConfig(t *testing.T) {
 
 		for _, expected := range expectedErrors {
 			if !strings.Contains(s, expected) {
-				t.Errorf("Expected %s to contain '%s'", s, expected)
+				t.Errorf("Expected %q to contain '%s'", s, expected)
 			}
 		}
-	}) */
+	})
 
-	/* 	t.Run("AccessConfigTemplateOnly", func(t *testing.T) {
+	t.Run("AccessConfigTemplateOnly", func(t *testing.T) {
 		raw := testConfig(cfgFile)
 		delete(raw, "access_cfg_file")
 		raw["user_ocid"] = "ocid1..."
@@ -111,9 +111,9 @@ func TestConfig(t *testing.T) {
 			t.Fatalf("err: %+v", errs)
 		}
 
-	}) */
+	})
 
-	/* 	t.Run("TenancyReadFromAccessCfgFile", func(t *testing.T) {
+	t.Run("TenancyReadFromAccessCfgFile", func(t *testing.T) {
 		raw := testConfig(cfgFile)
 		c, errs := NewConfig(raw)
 		if errs != nil {
@@ -131,9 +131,9 @@ func TestConfig(t *testing.T) {
 			t.Errorf("Expected tenancy: %s, got %s.", expected, tenancy)
 		}
 
-	}) */
+	})
 
-	/* 	t.Run("RegionNotDefaultedToPHXWhenSetInOCISettings", func(t *testing.T) {
+	t.Run("RegionNotDefaultedToPHXWhenSetInOCISettings", func(t *testing.T) {
 		raw := testConfig(cfgFile)
 		c, errs := NewConfig(raw)
 		if errs != nil {
@@ -151,12 +151,12 @@ func TestConfig(t *testing.T) {
 			t.Errorf("Expected region: %s, got %s.", expected, region)
 		}
 
-	}) */
+	})
 
 	// Test the correct errors are produced when required template keys are
 	// omitted.
-	//TODO (HarveyLowndes) missing credentials
-	/*requiredKeys := []string{"availability_domain", "base_image_ocid", "shape", "subnet_ocid"}
+	// TODO (HarveyLowndes) missing credentials
+	requiredKeys := []string{"availability_domain", "base_image_ocid", "shape", "subnet_ocid"}
 	for _, k := range requiredKeys {
 		t.Run(k+"_required", func(t *testing.T) {
 			raw := testConfig(cfgFile)
@@ -168,9 +168,9 @@ func TestConfig(t *testing.T) {
 				t.Errorf("Expected '%s' to contain '%s'", errs.Error(), k)
 			}
 		})
-	}*/
+	}
 
-	/* 	t.Run("ImageNameDefaultedIfEmpty", func(t *testing.T) {
+	t.Run("ImageNameDefaultedIfEmpty", func(t *testing.T) {
 		raw := testConfig(cfgFile)
 		delete(raw, "image_name")
 
@@ -182,35 +182,38 @@ func TestConfig(t *testing.T) {
 		if !strings.Contains(c.ImageName, "packer-") {
 			t.Errorf("got default ImageName %q, want image name 'packer-{{timestamp}}'", c.ImageName)
 		}
-	}) */
+	})
 
 	// Test that AccessCfgFile properties are overridden by their
 	// corresponding template keys.
-	/*accessOverrides := map[string]string{
-		"user_ocid":    "User",
-		"tenancy_ocid": "Tenancy",
-		"region":       "Region",
-		"fingerprint":  "Fingerprint",
-	}
-	for k, v := range accessOverrides {
-		t.Run("AccessCfg."+v+"Overridden", func(t *testing.T) {
-			expected := "override"
-
-			raw := testConfig(cfgFile)
-			raw[k] = expected
-
-			c, errs := NewConfig(raw)
-			if errs != nil {
-				t.Fatalf("err: %+v", errs)
-			}
-
-			accessVal := getField(&c.AccessCfg, v)
-			if accessVal != expected {
-				t.Errorf("Expected AccessCfg.%s: %s, got %s", v, expected, accessVal)
-			}
-		})
-	}*/
-	//time.Sleep(20 * time.Second)
+	// TODO: needs rewriting as individual tests that call the methods on the
+	// config provider.
+	/*
+	 *        accessOverrides := map[string]string{
+	 *                "user_ocid":    "User",
+	 *                "tenancy_ocid": "Tenancy",
+	 *                "region":       "Region",
+	 *                "fingerprint":  "Fingerprint",
+	 *        }
+	 *        for k, v := range accessOverrides {
+	 *                t.Run("AccessCfg."+v+"Overridden", func(t *testing.T) {
+	 *                        expected := "override"
+	 *
+	 *                        raw := testConfig(cfgFile)
+	 *                        raw[k] = expected
+	 *
+	 *                        c, errs := NewConfig(raw)
+	 *                        if errs != nil {
+	 *                                t.Fatalf("err: %+v", errs)
+	 *                        }
+	 *
+	 *                        accessVal := getField(&c.ConfigProvider, v)
+	 *                        if accessVal != expected {
+	 *                                t.Errorf("Expected AccessCfg.%s: %s, got %s", v, expected, accessVal)
+	 *                        }
+	 *                })
+	 *        }
+	 */
 }
 
 // BaseTestConfig creates the base (DEFAULT) config including a temporary key
@@ -241,12 +244,15 @@ func writeTestConfig(cfg *ini.File) (*os.File, error) {
 		return nil, err
 	}
 
-	_, err = cfg.WriteTo(confFile)
-	if err != nil {
+	if _, err := confFile.Write([]byte("[DEFAULT]\n")); err != nil {
 		os.Remove(confFile.Name())
 		return nil, err
 	}
 
+	if _, err := cfg.WriteTo(confFile); err != nil {
+		os.Remove(confFile.Name())
+		return nil, err
+	}
 	return confFile, nil
 }
 

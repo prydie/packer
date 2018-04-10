@@ -28,8 +28,8 @@ type Config struct {
 	AccessCfgFileAccount string `mapstructure:"access_cfg_file_account"`
 
 	// Access config overrides
-	UserID       string `mapstructure:"user"`
-	TenancyID    string `mapstructure:"tenancy"`
+	UserID       string `mapstructure:"user_ocid"`
+	TenancyID    string `mapstructure:"tenancy_ocid"`
 	Region       string `mapstructure:"region"`
 	Fingerprint  string `mapstructure:"fingerprint"`
 	KeyFile      string `mapstructure:"key_file"`
@@ -66,7 +66,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	if c.AccessCfgFile == "" {
 		c.AccessCfgFile, err = getDefaultOCISettingsPath()
 		if err != nil {
-			log.Printf("Fail to get default oci settings: %+v", err)
+			log.Println("Default OCI settings file not found")
 		}
 	}
 
@@ -102,7 +102,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	}
 
 	providers := []ocicommon.ConfigurationProvider{
-		ocicommon.NewRawConfigurationProvider(c.TenancyID, c.UserID, c.Region, c.Fingerprint, string(keyContent), &c.PassPhrase),
+		NewRawConfigurationProvider(c.TenancyID, c.UserID, c.Region, c.Fingerprint, string(keyContent), &c.PassPhrase),
 	}
 	if err == nil {
 		providers = append(providers, fileProvider)
@@ -113,8 +113,6 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf("Config Provider: %+v", configProvider)
 
 	var errs *packer.MultiError
 	if es := c.Comm.Prepare(&c.ctx); len(es) > 0 {
@@ -156,9 +154,8 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	}
 
 	if _, err := configProvider.PrivateRSAKey(); err != nil {
-		log.Printf("RSA Error: %+v", err)
 		errs = packer.MultiErrorAppend(
-			errs, errors.New("'PrivateRSAKey' must be specified")) //TODO (HarveyLowndes) is this message ok?
+			errs, errors.New("'key_file' must be specified"))
 	}
 
 	c.ConfigProvider = configProvider
@@ -168,12 +165,8 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 			errs, errors.New("'availability_domain' must be specified"))
 	}
 
-	if c.CompartmentID == "" {
-		tenancy, err := configProvider.TenancyOCID()
-		if err != nil {
-			return nil, err //TODO (HarveyLowndes) is this ok?
-		}
-		c.CompartmentID = tenancy
+	if c.CompartmentID == "" && tenancyOCID != "" {
+		c.CompartmentID = tenancyOCID
 	}
 
 	if c.Shape == "" {
